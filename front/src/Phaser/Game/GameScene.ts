@@ -120,7 +120,7 @@ export class GameScene extends ResizableScene implements CenterListener {
     MapPlayers!: Phaser.Physics.Arcade.Group;
     MapPlayersByKey : Map<number, RemotePlayer> = new Map<number, RemotePlayer>();
     Map!: Phaser.Tilemaps.Tilemap;
-    Layers!: Array<Phaser.Tilemaps.TilemapLayer>;
+    Layers!: Array<Phaser.Tilemaps.StaticTilemapLayer>;
     Objects!: Array<Phaser.Physics.Arcade.Sprite>;
     mapFile!: ITiledMap;
     animatedTiles!: AnimatedTiles;
@@ -162,7 +162,7 @@ export class GameScene extends ResizableScene implements CenterListener {
     private actionableItems: Map<number, ActionableItem> = new Map<number, ActionableItem>();
     // The item that can be selected by pressing the space key.
     private outlinedItem: ActionableItem|null = null;
-    private userInputManager!: UserInputManager;
+    public userInputManager!: UserInputManager;
     private isReconnecting: boolean = false;
     private startLayerName!: string | null;
     private openChatIcon!: OpenChatIcon;
@@ -202,8 +202,6 @@ export class GameScene extends ResizableScene implements CenterListener {
 
     //hook preload scene
     preload(): void {
-        addLoader(this);
-
         const localUser = localUserStore.getLocalUser();
         const textures = localUser?.textures;
         if (textures) {
@@ -235,6 +233,8 @@ export class GameScene extends ResizableScene implements CenterListener {
 
         this.load.spritesheet('layout_modes', 'resources/objects/layout_modes.png', {frameWidth: 32, frameHeight: 32});
         this.load.bitmapFont('main_font', 'resources/fonts/arcade.png', 'resources/fonts/arcade.xml');
+
+        addLoader(this);
     }
 
     // FIXME: we need to put a "unknown" instead of a "any" and validate the structure of the JSON we are receiving.
@@ -369,11 +369,11 @@ export class GameScene extends ResizableScene implements CenterListener {
         this.physics.world.setBounds(0, 0, this.Map.widthInPixels, this.Map.heightInPixels);
 
         //add layer on map
-        this.Layers = new Array<Phaser.Tilemaps.TilemapLayer>();
+        this.Layers = new Array<Phaser.Tilemaps.StaticTilemapLayer>();
         let depth = -2;
         for (const layer of this.mapFile.layers) {
             if (layer.type === 'tilelayer') {
-                this.addLayer(this.Map.createLayer(layer.name, this.Terrains, 0, 0).setDepth(depth));
+                this.addLayer(this.Map.createStaticLayer(layer.name, this.Terrains, 0, 0).setDepth(depth));
 
                 const exitSceneUrl = this.getExitSceneUrl(layer);
                 if (exitSceneUrl !== undefined) {
@@ -669,6 +669,15 @@ export class GameScene extends ResizableScene implements CenterListener {
         }
     }
 
+    private safeParseJSONstring(jsonString: string|undefined, propertyName: string) {
+        try {
+            return jsonString ? JSON.parse(jsonString) : {};
+        } catch(e) {
+            console.warn('Invalid JSON found in property "' + propertyName + '" of the map:' + jsonString, e);
+            return {}
+        }
+    }
+
     private triggerOnMapLayerPropertyChange(){
         this.gameMap.onPropertyChange('exitSceneUrl', (newValue, oldValue) => {
             if (newValue) this.onMapExit(newValue as string);
@@ -682,7 +691,7 @@ export class GameScene extends ResizableScene implements CenterListener {
                 coWebsiteManager.closeCoWebsite();
             }else{
                 const openWebsiteFunction = () => {
-                    coWebsiteManager.loadCoWebsite(newValue as string);
+                    coWebsiteManager.loadCoWebsite(newValue as string, allProps.get('openWebsitePolicy') as string | undefined);
                     layoutManager.removeActionButton('openWebsite', this.userInputManager);
                 };
 
@@ -702,12 +711,13 @@ export class GameScene extends ResizableScene implements CenterListener {
                 this.stopJitsi();
             }else{
                 const openJitsiRoomFunction = () => {
+                    const roomName = jitsiFactory.getRoomName(newValue.toString(), this.instance);
                     if (JITSI_PRIVATE_MODE) {
                         const adminTag = allProps.get("jitsiRoomAdminTag") as string|undefined;
 
-                        this.connection.emitQueryJitsiJwtMessage(this.instance.replace('/', '-') + "-" + newValue, adminTag);
+                        this.connection.emitQueryJitsiJwtMessage(roomName, adminTag);
                     } else {
-                        this.startJitsi(newValue as string);
+                        this.startJitsi(roomName, undefined);
                     }
                     layoutManager.removeActionButton('jitsiRoom', this.userInputManager);
                 }
@@ -898,13 +908,13 @@ export class GameScene extends ResizableScene implements CenterListener {
         this.cameras.main.setZoom(ZOOM_LEVEL);
     }
 
-    addLayer(Layer : Phaser.Tilemaps.TilemapLayer){
+    addLayer(Layer : Phaser.Tilemaps.StaticTilemapLayer){
         this.Layers.push(Layer);
     }
 
     createCollisionWithPlayer() {
         //add collision layer
-        this.Layers.forEach((Layer: Phaser.Tilemaps.TilemapLayer) => {
+        this.Layers.forEach((Layer: Phaser.Tilemaps.StaticTilemapLayer) => {
             this.physics.add.collider(this.CurrentPlayer, Layer, (object1: GameObject, object2: GameObject) => {
                 //this.CurrentPlayer.say("Collision with layer : "+ (object2 as Tile).layer.name)
             });
@@ -1241,6 +1251,7 @@ export class GameScene extends ResizableScene implements CenterListener {
     private reposition(): void {
         this.presentationModeSprite.setY(this.game.renderer.height - 2);
         this.chatModeSprite.setY(this.game.renderer.height - 2);
+        this.openChatIcon.setY(this.game.renderer.height - 2);
 
         // Recompute camera offset if needed
         this.updateCameraOffset();
@@ -1267,7 +1278,11 @@ export class GameScene extends ResizableScene implements CenterListener {
     }
 
     public startJitsi(roomName: string, jwt?: string): void {
-        jitsiFactory.start(roomName, this.playerName, jwt);
+        const allProps = this.gameMap.getCurrentProperties();
+        const jitsiConfig = this.safeParseJSONstring(allProps.get("jitsiConfig") as string|undefined, 'jitsiConfig');
+        const jitsiInterfaceConfig = this.safeParseJSONstring(allProps.get("jitsiInterfaceConfig") as string|undefined, 'jitsiInterfaceConfig');
+
+        jitsiFactory.start(roomName, this.playerName, jwt, jitsiConfig, jitsiInterfaceConfig);
         this.connection.setSilent(true);
         mediaManager.hideGameOverlay();
 
@@ -1287,7 +1302,7 @@ export class GameScene extends ResizableScene implements CenterListener {
 
     private bannedUser(){
         this.cleanupClosingScene();
-        this.userInputManager.clearAllInputKeyboard();
+        this.userInputManager.clearAllKeys();
         this.scene.start(ErrorSceneName, {
             title: 'Banned',
             subTitle: 'You was banned of WorkAdventure',
