@@ -56,7 +56,7 @@ module.exports = {
             'TURN_PASSWORD',
             'JITSI_URL',
             'JITSI_PRIVATE_MODE',
-            'START_ROOM_URL'
+            'START_ROOM_URL',
             'MAX_PER_GROUP'
         ])
     ],
