@@ -1,17 +1,15 @@
-# protobuf build
-FROM node:14.15.4-buster-slim@sha256:cbae886186467bbfd274b82a234a1cdfbbd31201c2a6ee63a6893eefcf3c6e76 as builder
-WORKDIR /usr/src
-COPY messages .
+FROM thecodingmachine/workadventure-back-base:latest as builder
+WORKDIR /var/www/messages
+COPY --chown=docker:docker messages .
 RUN yarn install && yarn proto
 
-# webpack build
-FROM node:14.15.4-buster-slim@sha256:cbae886186467bbfd274b82a234a1cdfbbd31201c2a6ee63a6893eefcf3c6e76 as builder2
-WORKDIR /usr/src
-COPY front/yarn.lock front/package.json ./
+# we are rebuilding on each deploy to cope with the API_URL environment URL
+FROM thecodingmachine/nodejs:14-apache
+
+COPY --chown=docker:docker front .
+COPY --from=builder --chown=docker:docker /var/www/messages/generated /var/www/html/src/Messages/generated
 RUN yarn install
 
-COPY front .
-COPY --from=builder /usr/src/generated src/Messages/generated
 ENV NODE_ENV=production
 
 ARG BASE_DOMAIN

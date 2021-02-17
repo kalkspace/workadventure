@@ -34,9 +34,13 @@ import {ReconnectingSceneName} from "../Reconnecting/ReconnectingScene";
 import {lazyLoadPlayerCharacterTextures, loadCustomTexture} from "../Entity/PlayerTexturesLoadingManager";
 import {
     CenterListener,
+    JITSI_MESSAGE_PROPERTIES,
     layoutManager,
     LayoutMode,
-    ON_ACTION_TRIGGER_BUTTON, TRIGGER_JITSI_PROPERTIES, TRIGGER_WEBSITE_PROPERTIES
+    ON_ACTION_TRIGGER_BUTTON,
+    TRIGGER_JITSI_PROPERTIES,
+    TRIGGER_WEBSITE_PROPERTIES,
+    WEBSITE_MESSAGE_PROPERTIES
 } from "../../WebRtc/LayoutManager";
 import Texture = Phaser.Textures.Texture;
 import Sprite = Phaser.GameObjects.Sprite;
@@ -697,7 +701,11 @@ export class GameScene extends ResizableScene implements CenterListener {
 
                 const openWebsiteTriggerValue = allProps.get(TRIGGER_WEBSITE_PROPERTIES);
                 if(openWebsiteTriggerValue && openWebsiteTriggerValue === ON_ACTION_TRIGGER_BUTTON) {
-                    layoutManager.addActionButton('openWebsite', 'Click on SPACE to open the web site', () => {
+                    let message = allProps.get(WEBSITE_MESSAGE_PROPERTIES);
+                    if(message === undefined){
+                        message = 'Press on SPACE to open the web site';
+                    }
+                    layoutManager.addActionButton('openWebsite', message.toString(), () => {
                         openWebsiteFunction();
                     }, this.userInputManager);
                 }else{
@@ -724,14 +732,18 @@ export class GameScene extends ResizableScene implements CenterListener {
 
                 const jitsiTriggerValue = allProps.get(TRIGGER_JITSI_PROPERTIES);
                 if(jitsiTriggerValue && jitsiTriggerValue === ON_ACTION_TRIGGER_BUTTON) {
-                    layoutManager.addActionButton('jitsiRoom', 'Click on SPACE to enter in jitsi meet room', () => {
+                    let message = allProps.get(JITSI_MESSAGE_PROPERTIES);
+                    if (message === undefined) {
+                        message = 'Press on SPACE to enter in jitsi meet room';
+                    }
+                    layoutManager.addActionButton('jitsiRoom', message.toString(), () => {
                         openJitsiRoomFunction();
                     }, this.userInputManager);
                 }else{
                     openJitsiRoomFunction();
                 }
             }
-        })
+        });
         this.gameMap.onPropertyChange('silent', (newValue, oldValue) => {
             if (newValue === undefined || newValue === false || newValue === '') {
                 this.connection.setSilent(false);
@@ -755,6 +767,10 @@ export class GameScene extends ResizableScene implements CenterListener {
         if (!roomId) throw new Error('Could not find the room from its exit key: '+exitKey);
         urlManager.pushStartLayerNameToUrl(hash);
         if (roomId !== this.scene.key) {
+            if (this.scene.get(roomId) === null) {
+                console.error("next room not loaded", exitKey);
+                return;
+            }
             this.cleanupClosingScene();
             this.scene.stop();
             this.scene.remove(this.scene.key);
